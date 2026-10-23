@@ -1,20 +1,23 @@
-# Downloads one season of Bart Torvik player stats and saves it to DuckDB.
-import io
+# Downloads several seasons of Torvik player stats into one DuckDB table.
+import io, time
 import requests
 import pandas as pd
 import duckdb
 
-YEAR = 2025  # 2025 = the 2024-25 season
-URL = f"https://barttorvik.com/getadvstats.php?year={YEAR}&csv=1"
+YEARS = [2022, 2023, 2024, 2025]
+frames = []
+for year in YEARS:
+    url = f"https://barttorvik.com/getadvstats.php?year={year}&csv=1"
+    resp = requests.get(url, timeout=60)
+    resp.raise_for_status()
+    df = pd.read_csv(io.StringIO(resp.text), header=None)
+    df.columns = [str(c) for c in df.columns]
+    print(year, df.shape)
+    frames.append(df)
+    time.sleep(2)  # be polite to the site
 
-resp = requests.get(URL, timeout=60)
-resp.raise_for_status()
-df = pd.read_csv(io.StringIO(resp.text), header=None)
-
-print(df.shape)
-print(df.head())
-
+all_df = pd.concat(frames, ignore_index=True)
 con = duckdb.connect("data/cbb.duckdb")
-con.execute(f"CREATE OR REPLACE TABLE raw_players_{YEAR} AS SELECT * FROM df")
-print(con.execute(f"SELECT COUNT(*) FROM raw_players_{YEAR}").fetchone())
+con.execute("CREATE OR REPLACE TABLE raw_players AS SELECT * FROM all_df")
+print(con.execute('SELECT "31" AS season, COUNT(*) FROM raw_players GROUP BY 1 ORDER BY 1').fetchall())
 con.close()
